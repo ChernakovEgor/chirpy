@@ -1,16 +1,22 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync/atomic"
+
+	"github.com/ChernakovEgor/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      database.Queries
 }
 
 func (a *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -40,8 +46,16 @@ func (a *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("could not connect to db: %v", err)
+	}
+
+	dbQueries := database.New(db)
 	mux := http.NewServeMux()
-	apiCfg := apiConfig{}
+	apiCfg := apiConfig{dbQueries: *dbQueries}
 	fileserverHandler := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileserverHandler))
@@ -58,46 +72,4 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(http.StatusText(http.StatusOK)))
-}
-
-func handleValidate(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	type validateRequest struct {
-		Body string `json:"body"`
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	var vRequest validateRequest
-	err := decoder.Decode(&vRequest)
-	if err != nil {
-		log.Printf("could not decode request: %v", err)
-	}
-
-	if len(vRequest.Body) > 140 {
-		rError := struct {
-			Error string `json:"error"`
-		}{Error: "Chirp is too long"}
-		b, err := json.Marshal(rError)
-		if err != nil {
-			log.Printf("could not encode error: %v", err)
-		}
-		w.WriteHeader(400)
-		_, err = w.Write(b)
-		if err != nil {
-			log.Printf("could not write response: %v", err)
-		}
-	} else {
-		rValid := struct {
-			Valid bool `json:"valid"`
-		}{Valid: true}
-		b, err := json.Marshal(rValid)
-		if err != nil {
-			log.Printf("could not encode valid: %v", err)
-		}
-		w.WriteHeader(http.StatusOK)
-		_, err = w.Write(b)
-		if err != nil {
-			log.Printf("could not write response: %v", err)
-		}
-	}
 }
