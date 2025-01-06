@@ -56,14 +56,22 @@ func (a *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var loginRequest struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email     string `json:"email"`
+		Password  string `json:"password"`
+		ExpiresIn int    `json:"expires_in_seconds,omitempty"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&loginRequest)
 	if err != nil {
 		log.Fatalf("could not decode request: %v", err)
+	}
+
+	var tokenDuration time.Duration
+	if loginRequest.ExpiresIn == 0 || loginRequest.ExpiresIn > 3600 {
+		tokenDuration = time.Hour
+	} else {
+		tokenDuration = time.Duration(loginRequest.ExpiresIn) * time.Second
 	}
 
 	user, err := a.dbQueries.GetUserByEmail(context.Background(), loginRequest.Email)
