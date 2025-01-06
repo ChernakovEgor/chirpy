@@ -70,6 +70,9 @@ func main() {
 
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileserverHandler))
 	mux.HandleFunc("GET /api/healthz", handleHealthz)
+	mux.HandleFunc("GET /api/chirps", apiCfg.handleGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handleGetChirpByID)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handleCreateChirp)
 	mux.HandleFunc("POST /api/validate_chirp", handleValidate)
 	mux.HandleFunc("POST /api/users", apiCfg.handleUsers)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
