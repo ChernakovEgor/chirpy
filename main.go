@@ -46,6 +46,7 @@ func (a *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
 func (a *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	if a.platform != "dev" {
 		respondWithError(w, 403, "")
+		return
 	}
 	err := a.dbQueries.ResetUsers(context.Background())
 	if err != nil {
@@ -72,13 +73,20 @@ func main() {
 	fileserverHandler := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileserverHandler))
+
 	mux.HandleFunc("GET /api/healthz", handleHealthz)
 	mux.HandleFunc("GET /api/chirps", apiCfg.handleGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handleGetChirpByID)
+
 	mux.HandleFunc("POST /api/chirps", apiCfg.handleCreateChirp)
 	mux.HandleFunc("POST /api/validate_chirp", handleValidate)
 	mux.HandleFunc("POST /api/users", apiCfg.handleUsers)
 	mux.HandleFunc("POST /api/login", apiCfg.handleLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handleRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handleRevoke)
+
+	mux.HandleFunc("PUT /api/users", apiCfg.handleUpdateCredentials)
+
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	server := http.Server{Addr: ":8080", Handler: mux}

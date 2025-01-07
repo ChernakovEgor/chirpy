@@ -22,6 +22,7 @@ func handleValidate(w http.ResponseWriter, r *http.Request) {
 
 	if len(vRequest.Body) > 140 {
 		respondWithError(w, 400, "Chirp is too long")
+		return
 	} else {
 		msg := filterProfane(vRequest.Body)
 		filtered := struct {

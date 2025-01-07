@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -47,17 +49,25 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return []byte(tokenSecret), nil
 	})
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("could not parse token: %v", err)
 	}
+
 	idString, err := token.Claims.GetSubject()
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not get subject from token: %v", err)
 	}
+	issuer, err := token.Claims.GetIssuer()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("could not get issuer from token: %v", err)
+	}
+	if issuer != "chirpy" {
+		return uuid.Nil, fmt.Errorf("invalid issuer: %v", issuer)
+	}
+
 	userID, err := uuid.Parse(idString)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not parse uuid: %v", err)
 	}
-
 	return userID, nil
 }
 
@@ -68,5 +78,16 @@ func GetBearerToken(headers http.Header) (string, error) {
 	}
 
 	token := strings.TrimPrefix(value, "Bearer ")
+	return token, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	data := make([]byte, 32)
+	_, err := rand.Read(data)
+	if err != nil {
+		return "", fmt.Errorf("could not generate random string data: %v", err)
+	}
+
+	token := hex.EncodeToString(data)
 	return token, nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -13,10 +14,12 @@ import (
 )
 
 type userResponse struct {
-	Id        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	Id           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	JWTtoken     string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
 }
 
 func (a *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
@@ -67,17 +70,20 @@ func (a *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("could not decode request: %v", err)
 	}
 
-	var tokenDuration time.Duration
-	if loginRequest.ExpiresIn == 0 || loginRequest.ExpiresIn > 3600 {
-		tokenDuration = time.Hour
-	} else {
-		tokenDuration = time.Duration(loginRequest.ExpiresIn) * time.Second
-	}
-
 	user, err := a.dbQueries.GetUserByEmail(context.Background(), loginRequest.Email)
 	if err := auth.CheckPasswordHash(loginRequest.Password, user.HashedPassword); err != nil {
 		respondWithError(w, http.StatusUnauthorized, "")
 		return
+	}
+
+	jwtToken, err := a.registerJWT(user.ID, loginRequest.ExpiresIn)
+	if err != nil {
+		log.Fatalf("could not create JWT token: %v", err)
+	}
+
+	refreshToken, err := a.registerRefreshToken(user.ID)
+	if err != nil {
+		log.Fatalf("could not create refresh token: %v", err)
 	}
 
 	loggedUser := userResponse{
@@ -85,6 +91,83 @@ func (a *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		user.CreatedAt,
 		user.UpdatedAt,
 		user.Email,
+		jwtToken,
+		refreshToken,
 	}
 	respondWithJSON(w, http.StatusOK, loggedUser)
+}
+
+func (a *apiConfig) registerJWT(userID uuid.UUID, expiresIn int) (string, error) {
+	var tokenDuration time.Duration
+	if expiresIn == 0 || expiresIn > 3600 {
+		tokenDuration = time.Hour
+	} else {
+		tokenDuration = time.Duration(expiresIn) * time.Second
+	}
+
+	token, err := auth.MakeJWT(userID, a.jwtSecret, tokenDuration)
+	if err != nil {
+		return "", fmt.Errorf("could not create token: %v", err)
+	}
+
+	return token, nil
+}
+
+func (a *apiConfig) registerRefreshToken(userID uuid.UUID) (string, error) {
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		return "", fmt.Errorf("could not create refresh token: %v", err)
+	}
+
+	createRefreshTokenParams := database.CreateRefreshTokenParams{Token: refreshToken, UserID: userID}
+	_, err = a.dbQueries.CreateRefreshToken(context.Background(), createRefreshTokenParams)
+	if err != nil {
+		return "", fmt.Errorf("could not insert refresh token: %v", err)
+	}
+
+	return refreshToken, nil
+}
+
+func (a *apiConfig) handleUpdateCredentials(w http.ResponseWriter, r *http.Request) {
+	jwtToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "jwt token expired")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(jwtToken, a.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "invalid jwt token")
+		return
+	}
+
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&body)
+	if err != nil {
+		log.Fatalf("could not decode body: %v", err)
+	}
+
+	hashedPass, err := auth.HashPassword(body.Password)
+	if err != nil {
+		log.Fatalf("could not hash password: %v", err)
+	}
+
+	updateUserParams := database.UpdateEmailAndPasswordParams{ID: userID, Email: body.Email, HashedPassword: hashedPass}
+	user, err := a.dbQueries.UpdateEmailAndPassword(context.Background(), updateUserParams)
+	if err != nil {
+		log.Fatalf("could not update user: %v", err)
+	}
+
+	userRes := userResponse{
+		Id:        userID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	}
+
+	respondWithJSON(w, http.StatusOK, userRes)
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ChernakovEgor/chirpy/internal/auth"
 	"github.com/ChernakovEgor/chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -22,8 +23,18 @@ type chirpEntry struct {
 
 func (a *apiConfig) handleCreateChirp(w http.ResponseWriter, r *http.Request) {
 	var chirpRequest struct {
-		Body   string    `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Fatalf("could not get token from headers: %v", err)
+	}
+
+	userID, err := auth.ValidateJWT(token, a.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "invalid JWT token")
+		return
 	}
 
 	b, err := io.ReadAll(r.Body)
@@ -36,7 +47,7 @@ func (a *apiConfig) handleCreateChirp(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("could not unmarshal request: %v", err)
 	}
 
-	chirpParams := database.CreateChirpParams{Body: chirpRequest.Body, UserID: chirpRequest.UserId}
+	chirpParams := database.CreateChirpParams{Body: chirpRequest.Body, UserID: userID}
 	chirp, err := a.dbQueries.CreateChirp(context.Background(), chirpParams)
 	if err != nil {
 		log.Fatalf("could not create chirp: %v", err)
