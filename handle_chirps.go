@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/ChernakovEgor/chirpy/internal/auth"
@@ -65,9 +66,27 @@ func (a *apiConfig) handleCreateChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *apiConfig) handleGetChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := a.dbQueries.GetAllChirps(context.Background())
-	if err != nil {
-		log.Fatalf("could not get chirps: %v", err)
+	authorIdString := r.URL.Query().Get("author_id")
+	var chirps []database.Chirp
+	var err error
+
+	if authorIdString == "" {
+		chirps, err = a.dbQueries.GetAllChirps(context.Background())
+		if err != nil {
+			log.Fatalf("could not get chirps: %v", err)
+		}
+	} else {
+		authorID, err := uuid.Parse(authorIdString)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, "invalid id")
+			return
+		}
+		chirps, err = a.dbQueries.GetChirpByAuthor(context.Background(), authorID)
+	}
+
+	sortOrder := r.URL.Query().Get("sort")
+	if sortOrder == "desc" {
+		slices.Reverse(chirps)
 	}
 
 	var chirpResponse []chirpEntry
@@ -101,4 +120,47 @@ func (a *apiConfig) handleGetChirpByID(w http.ResponseWriter, r *http.Request) {
 		chirp.UserID,
 	}
 	respondWithJSON(w, http.StatusOK, chirpResponse)
+}
+
+func (a *apiConfig) handleDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "token invalid")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, a.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "token invalid")
+		return
+	}
+
+	chirpIdString := r.PathValue("chirpID")
+	chirpID, err := uuid.Parse(chirpIdString)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "incorrect chirp id")
+		return
+	}
+
+	// get chirp info
+	chirp, err := a.dbQueries.GetChirpByID(context.Background(), chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "incorrect chirp id")
+		return
+	}
+
+	if chirp.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "incorrect chirp id")
+		return
+	}
+
+	// delete chirp
+	deleteChirpParams := database.DeleteChirpParams{UserID: userID, ID: chirpID}
+	_, err = a.dbQueries.DeleteChirp(context.Background(), deleteChirpParams)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "chirp not found")
+		return
+	}
+
+	w.WriteHeader(204)
 }

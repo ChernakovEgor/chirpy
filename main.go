@@ -20,6 +20,7 @@ type apiConfig struct {
 	dbQueries      database.Queries
 	platform       string
 	jwtSecret      string
+	polkaKey       string
 }
 
 func (a *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -61,6 +62,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
 	jwtSecret := os.Getenv("JWT_SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -69,7 +71,7 @@ func main() {
 
 	dbQueries := database.New(db)
 	mux := http.NewServeMux()
-	apiCfg := apiConfig{dbQueries: *dbQueries, platform: platform, jwtSecret: jwtSecret}
+	apiCfg := apiConfig{dbQueries: *dbQueries, platform: platform, jwtSecret: jwtSecret, polkaKey: polkaKey}
 	fileserverHandler := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileserverHandler))
@@ -84,8 +86,11 @@ func main() {
 	mux.HandleFunc("POST /api/login", apiCfg.handleLogin)
 	mux.HandleFunc("POST /api/refresh", apiCfg.handleRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handleRevoke)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlePolkaWebhook)
 
 	mux.HandleFunc("PUT /api/users", apiCfg.handleUpdateCredentials)
+
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handleDeleteChirp)
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)

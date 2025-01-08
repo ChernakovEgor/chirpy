@@ -20,6 +20,7 @@ type userResponse struct {
 	Email        string    `json:"email"`
 	JWTtoken     string    `json:"token,omitempty"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 func (a *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +94,7 @@ func (a *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		user.Email,
 		jwtToken,
 		refreshToken,
+		user.IsChirpyRed,
 	}
 	respondWithJSON(w, http.StatusOK, loggedUser)
 }
